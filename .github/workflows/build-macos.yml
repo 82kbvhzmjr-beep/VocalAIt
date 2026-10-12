@@ -1,0 +1,79 @@
+
+name: Compilar Vocal AI Studio para macOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Compilar VST3 y AU para Mac
+    runs-on: macos-14
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas
+        run: |
+          brew install cmake ninja
+
+      - name: Configurar proyecto
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DVAS_FETCH_JUCE=ON
+
+      - name: Compilar plugins
+        run: cmake --build build --config Release --parallel 3
+
+      - name: Ejecutar pruebas
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Preparar paquetes VST3 y AU
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          VST3_PATH="$(find build -type d \
+            -name 'Vocal AI Studio.vst3' -print -quit)"
+
+          AU_PATH="$(find build -type d \
+            -name 'Vocal AI Studio.component' -print -quit)"
+
+          if [ -z "$VST3_PATH" ]; then
+            echo "::error::No se ha encontrado el plugin VST3."
+            find build -type d -name '*.vst3'
+            exit 1
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$VST3_PATH" \
+            "dist/Vocal-AI-Studio-macOS-VST3.zip"
+
+          if [ -n "$AU_PATH" ]; then
+            ditto -c -k --sequesterRsrc --keepParent \
+              "$AU_PATH" \
+              "dist/Vocal-AI-Studio-macOS-AU.zip"
+          else
+            echo "::warning::No se ha encontrado el plugin AU."
+          fi
+
+          ls -lh dist
+
+      - name: Publicar archivos descargables
+        uses: actions/upload-artifact@v4
+        with:
+          name: VocalAIStudio-macOS
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
