@@ -1,11 +1,9 @@
 
-name: Compilar Vocal AI Studio para macOS
+name: Compilar Vocal AI Studio para Mac
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
-  pull_request:
     branches: [main, master]
 
 permissions:
@@ -13,19 +11,30 @@ permissions:
 
 jobs:
   build-macos:
-    name: Compilar VST3 y AU para Mac
+    name: Compilar VST3 y AU para FL Studio
     runs-on: macos-14
 
     steps:
       - name: Descargar código
         uses: actions/checkout@v4
 
-      - name: Instalar herramientas
-        run: |
-          brew install cmake ninja
+      - name: Configurar CMake estable
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: 3.31.6
 
-      - name: Configurar proyecto
+      - name: Instalar Ninja
+        run: brew install ninja
+
+      - name: Mostrar herramientas
         run: |
+          cmake --version
+          ninja --version
+          clang --version
+
+      - name: Configurar proyecto desde cero
+        run: |
+          rm -rf build
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
@@ -36,41 +45,36 @@ jobs:
         run: cmake --build build --config Release --parallel 3
 
       - name: Ejecutar pruebas
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build --output-on-failure
 
-      - name: Preparar paquetes VST3 y AU
+      - name: Preparar VST3 y AU
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
 
-          VST3_PATH="$(find build -type d \
-            -name 'Vocal AI Studio.vst3' -print -quit)"
+          VST3="$(find build -type d \
+            -name '*.vst3' -print -quit)"
 
-          AU_PATH="$(find build -type d \
-            -name 'Vocal AI Studio.component' -print -quit)"
+          AU="$(find build -type d \
+            -name '*.component' -print -quit)"
 
-          if [ -z "$VST3_PATH" ]; then
-            echo "::error::No se ha encontrado el plugin VST3."
-            find build -type d -name '*.vst3'
+          if [ -z "$VST3" ]; then
+            echo "::error::No se ha generado ningún VST3."
             exit 1
           fi
 
           ditto -c -k --sequesterRsrc --keepParent \
-            "$VST3_PATH" \
-            "dist/Vocal-AI-Studio-macOS-VST3.zip"
+            "$VST3" dist/VocalAIStudio-macOS-VST3.zip
 
-          if [ -n "$AU_PATH" ]; then
+          if [ -n "$AU" ]; then
             ditto -c -k --sequesterRsrc --keepParent \
-              "$AU_PATH" \
-              "dist/Vocal-AI-Studio-macOS-AU.zip"
+              "$AU" dist/VocalAIStudio-macOS-AU.zip
           else
-            echo "::warning::No se ha encontrado el plugin AU."
+            echo "::warning::No se ha generado AU."
           fi
 
-          ls -lh dist
-
-      - name: Publicar archivos descargables
+      - name: Publicar plugins descargables
         uses: actions/upload-artifact@v4
         with:
           name: VocalAIStudio-macOS
